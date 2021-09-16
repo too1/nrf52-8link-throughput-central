@@ -72,7 +72,7 @@
 
 #define NUS_SERVICE_UUID_TYPE   BLE_UUID_TYPE_VENDOR_BEGIN              /**< UUID type for the Nordic UART Service (vendor specific). */
 
-#define ECHOBACK_BLE_UART_DATA  1                                       /**< Echo the UART data that is received over the Nordic UART Service (NUS) back to the sender. */
+#define ECHOBACK_BLE_UART_DATA  0                                      /**< Echo the UART data that is received over the Nordic UART Service (NUS) back to the sender. */
 
 
 BLE_NUS_C_ARRAY_DEF(m_ble_nus_c, NRF_SDH_BLE_CENTRAL_LINK_COUNT);       /**< BLE Nordic UART Service (NUS) client instances. */
@@ -82,6 +82,8 @@ NRF_BLE_SCAN_DEF(m_scan);                                               /**< Sca
 NRF_BLE_GQ_DEF(m_ble_gatt_queue,                                        /**< BLE GATT Queue instance. */
                NRF_SDH_BLE_CENTRAL_LINK_COUNT,
                NRF_BLE_GQ_QUEUE_SIZE);
+
+APP_TIMER_DEF(m_timer_print_throughput);
 
 static uint16_t m_ble_nus_max_data_len = BLE_GATT_ATT_MTU_DEFAULT - OPCODE_LENGTH - HANDLE_LENGTH; /**< Maximum length of data (in bytes) that can be transmitted to the peer by the Nordic UART service module. */
 
@@ -210,19 +212,22 @@ static void db_disc_handler(ble_db_discovery_evt_t * p_evt)
     ble_nus_c_on_db_disc_evt(&m_ble_nus_c[p_evt->conn_handle], p_evt);
 }
 
+static int bytes_pr_conn[NRF_SDH_BLE_CENTRAL_LINK_COUNT] = {0};
 
 /**@brief Function for handling characters received by the Nordic UART Service (NUS).
  *
  * @details This function takes a list of characters of length data_len and prints the characters out on UART.
  *          If @ref ECHOBACK_BLE_UART_DATA is set, the data is sent back to sender.
  */
-static void ble_nus_chars_received_uart_print(uint8_t * p_data, uint16_t data_len)
+static void ble_nus_chars_received_uart_print(uint8_t * p_data, uint16_t data_len, uint16_t conn)
 {
     ret_code_t ret_val;
 
     NRF_LOG_DEBUG("Receiving data.");
     NRF_LOG_HEXDUMP_DEBUG(p_data, data_len);
 
+    bytes_pr_conn[conn] += data_len;
+#if 0
     for (uint32_t i = 0; i < data_len; i++)
     {
         do
@@ -255,6 +260,7 @@ static void ble_nus_chars_received_uart_print(uint8_t * p_data, uint16_t data_le
             } while (ret_val == NRF_ERROR_BUSY);
         }
     }
+#endif
 }
 
 
@@ -342,7 +348,7 @@ static void ble_nus_c_evt_handler(ble_nus_c_t * p_ble_nus_c, ble_nus_c_evt_t con
             break;
 
         case BLE_NUS_C_EVT_NUS_TX_EVT:
-            ble_nus_chars_received_uart_print(p_ble_nus_evt->p_data, p_ble_nus_evt->data_len);
+            ble_nus_chars_received_uart_print(p_ble_nus_evt->p_data, p_ble_nus_evt->data_len, p_ble_nus_c->conn_handle);
             break;
 
         case BLE_NUS_C_EVT_DISCONNECTED:
@@ -614,11 +620,26 @@ static void buttons_leds_init(void)
     APP_ERROR_CHECK(err_code);
 }
 
+static void on_print_throughput(void *p)
+{
+    printf("\nThroughput update...\r\n");
+    for(int i = 0; i < NRF_SDH_BLE_CENTRAL_LINK_COUNT; i++)
+    {
+        if(bytes_pr_conn[i] > 0)
+        {
+            printf("    Conn %i: %i bytes\r\n", i, bytes_pr_conn[i]);
+            bytes_pr_conn[i] = 0;
+        }
+    }  
+}
 
 /**@brief Function for initializing the timer. */
 static void timer_init(void)
 {
     ret_code_t err_code = app_timer_init();
+    APP_ERROR_CHECK(err_code);
+    
+    err_code = app_timer_create(&m_timer_print_throughput, APP_TIMER_MODE_REPEATED, on_print_throughput);
     APP_ERROR_CHECK(err_code);
 }
 
@@ -691,6 +712,8 @@ int main(void)
     NRF_LOG_INFO("BLE UART central example started.");
     scan_start();
 
+    app_timer_start(m_timer_print_throughput, APP_TIMER_TICKS(1000), 0);
+    
     // Enter main loop.
     for (;;)
     {

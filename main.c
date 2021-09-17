@@ -697,6 +697,24 @@ int main(void)
     // Initialize.
     log_init();
     timer_init();
+
+    NRF_GPIOTE->CONFIG[0] = GPIOTE_CONFIG_MODE_Task << GPIOTE_CONFIG_MODE_Pos |
+                            3 << GPIOTE_CONFIG_PSEL_Pos;
+    NRF_GPIOTE->CONFIG[1] = GPIOTE_CONFIG_MODE_Task << GPIOTE_CONFIG_MODE_Pos |
+                            4 << GPIOTE_CONFIG_PSEL_Pos;
+
+    NRF_PPI->CH[0].EEP = (uint32_t)&NRF_RADIO->EVENTS_TXREADY;
+    NRF_PPI->CH[0].TEP = (uint32_t)&NRF_GPIOTE->TASKS_SET[0];
+    NRF_PPI->CH[1].EEP = (uint32_t)&NRF_RADIO->EVENTS_END;
+    NRF_PPI->CH[1].TEP = (uint32_t)&NRF_GPIOTE->TASKS_CLR[0];
+
+    NRF_PPI->CH[2].EEP = (uint32_t)&NRF_RADIO->EVENTS_RXREADY;
+    NRF_PPI->CH[2].TEP = (uint32_t)&NRF_GPIOTE->TASKS_SET[1];
+    NRF_PPI->CH[3].EEP = (uint32_t)&NRF_RADIO->EVENTS_END;
+    NRF_PPI->CH[3].TEP = (uint32_t)&NRF_GPIOTE->TASKS_CLR[1];
+    
+    NRF_PPI->CHENSET = 0xF;
+
     uart_init();
     buttons_leds_init();
     db_discovery_init();
